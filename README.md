@@ -39,7 +39,7 @@ pip install -r requirements.txt
 
 Run the application:
 
-python penny_track.py
+python PennyTrack.py
 
 Usage
 
