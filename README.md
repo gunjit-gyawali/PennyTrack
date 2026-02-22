@@ -31,15 +31,8 @@ Clone or download the repository:
 git clone https://github.com/yourusername/penny-track.git
 cd penny-track
 
-
-Install required dependencies (if needed):
-
-pip install -r requirements.txt
-
-
 Run the application:
-
-python PennyTrack.py
+PennyTrack.exe
 
 Usage
 
