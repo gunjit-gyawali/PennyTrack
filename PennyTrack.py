@@ -24,6 +24,14 @@ class Colors:
         Colors.WHITE = Colors.BOLD = Colors.RESET = ''
 
 
+def _safe_float(value, default=0.0):
+    """Safely convert a value to float, returning default on failure."""
+    try:
+        return float(value)
+    except (ValueError, TypeError):
+        return default
+
+
 class ExpenseTracker:
     def __init__(self, filename="expenses.csv", budgets_file="budgets.json", 
                  recurring_file="recurring.json", config_file="config.json"):
@@ -56,7 +64,7 @@ class ExpenseTracker:
                 with open(self.config_file, 'r') as f:
                     config = json.load(f)
                     return {**default_config, **config}
-            except:
+            except (json.JSONDecodeError, ValueError, IOError):
                 return default_config
         return default_config
     
@@ -90,7 +98,7 @@ class ExpenseTracker:
         try:
             with open(self.budgets_file, 'r') as f:
                 self.budgets = json.load(f)
-        except:
+        except (json.JSONDecodeError, ValueError, IOError):
             self.budgets = {}
     
     def _save_budgets(self):
@@ -101,7 +109,7 @@ class ExpenseTracker:
         try:
             with open(self.recurring_file, 'r') as f:
                 self.recurring_expenses = json.load(f)
-        except:
+        except (json.JSONDecodeError, ValueError, IOError):
             self.recurring_expenses = []
     
     def _save_recurring(self):
@@ -127,7 +135,8 @@ class ExpenseTracker:
             elif frequency == 'weekly':
                 should_add = (today - last_added).days >= 7
             elif frequency == 'monthly':
-                should_add = (today - last_added).days >= 28
+                # Check if we've moved to a new calendar month
+                should_add = (today.year > last_added.year) or (today.month > last_added.month)
 
             if should_add:
                 expense_id = self._get_next_id()
@@ -230,7 +239,7 @@ class ExpenseTracker:
                             if e['Date'].startswith(month_key) 
                             and e['Category'] == category
                             and e.get('Type', 'expense') == 'expense']
-            total_spent = sum(float(e['Amount']) for e in month_expenses)
+            total_spent = sum(_safe_float(e['Amount']) for e in month_expenses)
             
             percentage = (total_spent / budget_amount) * 100
             
@@ -248,8 +257,8 @@ class ExpenseTracker:
         print("\n--- Recent Expenses ---")
         recent = sorted(self.expenses, key=lambda x: x['Date'], reverse=True)[:20]
         for exp in recent:
-            exp_type = "📈" if exp.get('Type') == 'income' else "💰"
-            print(f"{exp_type} ID: {exp['ID']:<4} | {exp['Date']} | ${float(exp['Amount']):>8.2f} | {exp['Category']:<15} | {exp['Note'][:30]}")
+            exp_type = "" if exp.get('Type') == 'income' else ""
+            print(f"{exp_type} ID: {exp['ID']:<4} | {exp['Date']} | ${_safe_float(exp['Amount']):>8.2f} | {exp['Category']:<15} | {exp['Note'][:30]}")
         
         expense_id = input("\nEnter ID to edit (or 'cancel'): ").strip()
         if expense_id.lower() == 'cancel':
@@ -270,7 +279,14 @@ class ExpenseTracker:
         new_note = input(f"Note ({expense['Note']}): ").strip()
         
         if new_amount:
-            expense['Amount'] = f"{float(new_amount):.2f}"
+            try:
+                parsed = float(new_amount)
+                if parsed <= 0:
+                    print(f"{Colors.YELLOW}Amount must be positive. Keeping original value.{Colors.RESET}")
+                else:
+                    expense['Amount'] = f"{parsed:.2f}"
+            except ValueError:
+                print(f"{Colors.YELLOW}Invalid amount entered. Keeping original value.{Colors.RESET}")
         if new_category:
             expense['Category'] = new_category
         if new_date:
@@ -290,7 +306,7 @@ class ExpenseTracker:
         recent = sorted(self.expenses, key=lambda x: x['Date'], reverse=True)[:20]
         for exp in recent:
             exp_type = "" if exp.get('Type') == 'income' else ""
-            print(f"{exp_type} ID: {exp['ID']:<4} | {exp['Date']} | ${float(exp['Amount']):>8.2f} | {exp['Category']:<15} | {exp['Note'][:30]}")
+            print(f"{exp_type} ID: {exp['ID']:<4} | {exp['Date']} | ${_safe_float(exp['Amount']):>8.2f} | {exp['Category']:<15} | {exp['Note'][:30]}")
         
         expense_id = input("\nEnter ID to delete (or 'cancel'): ").strip()
         if expense_id.lower() == 'cancel':
@@ -350,9 +366,13 @@ class ExpenseTracker:
             filtered = [e for e in filtered if start_date <= e['Date'] <= end_date]
         
         elif choice == '3':
-            min_amount = float(input("Minimum amount: $").strip())
-            max_amount = float(input("Maximum amount: $").strip())
-            filtered = [e for e in filtered if min_amount <= float(e['Amount']) <= max_amount]
+            try:
+                min_amount = float(input("Minimum amount: $").strip())
+                max_amount = float(input("Maximum amount: $").strip())
+            except ValueError:
+                print(f"{Colors.RED}Invalid amount. Please enter numbers only.{Colors.RESET}")
+                return
+            filtered = [e for e in filtered if _safe_float(e['Amount']) is not None and min_amount <= _safe_float(e['Amount']) <= max_amount]
         
         elif choice == '4':
             keyword = input("Enter keyword: ").strip().lower()
@@ -381,7 +401,7 @@ class ExpenseTracker:
         
         total = 0
         for expense in sorted_filtered:
-            amount = float(expense['Amount'])
+            amount = _safe_float(expense['Amount'])
             total += amount if expense.get('Type', 'expense') == 'expense' else -amount
             note = expense['Note'][:27] + "..." if len(expense['Note']) > 30 else expense['Note']
             exp_type = "+" if expense.get('Type') == 'income' else "-"
@@ -406,7 +426,7 @@ class ExpenseTracker:
         total_income = 0
         
         for expense in sorted_expenses:
-            amount = float(expense['Amount'])
+            amount = _safe_float(expense['Amount'])
             is_income = expense.get('Type', 'expense') == 'income'
             
             if is_income:
@@ -450,12 +470,12 @@ class ExpenseTracker:
             print(f"\nNo entries found for {month_input}")
             return
         
-        total_expenses = sum(float(e['Amount']) for e in month_expenses)
-        total_income = sum(float(e['Amount']) for e in month_income)
+        total_expenses = sum(_safe_float(e['Amount']) for e in month_expenses)
+        total_income = sum(_safe_float(e['Amount']) for e in month_income)
         category_totals = defaultdict(float)
         
         for expense in month_expenses:
-            category_totals[expense['Category']] += float(expense['Amount'])
+            category_totals[expense['Category']] += _safe_float(expense['Amount'])
         
         month_name = datetime.strptime(month_input + "-01", "%Y-%m-%d").strftime("%B %Y")
         print(f"\n{'='*50}")
@@ -497,8 +517,10 @@ class ExpenseTracker:
             
             print("=" * 50)
             
-            days_in_month = (datetime.now().replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
-            avg_daily = total_expenses / days_in_month.day
+            # Use the selected month's actual day count, not the current month
+            selected_month_dt = datetime.strptime(month_input + "-01", "%Y-%m-%d")
+            days_in_month = (selected_month_dt.replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+            avg_daily = total_expenses / days_in_month.day if days_in_month.day > 0 else 0
             print(f"Daily average: ${avg_daily:.2f}")
     
     def statistics_dashboard(self):
@@ -517,17 +539,17 @@ class ExpenseTracker:
             print("No expense data available yet.")
             return
         
-        total_expense = sum(float(e['Amount']) for e in expenses_only)
-        total_income = sum(float(e['Amount']) for e in income_only)
+        total_expense = sum(_safe_float(e['Amount']) for e in expenses_only)
+        total_income = sum(_safe_float(e['Amount']) for e in income_only)
         avg_expense = total_expense / len(expenses_only)
         
-        highest = max(expenses_only, key=lambda x: float(x['Amount']))
+        highest = max(expenses_only, key=lambda x: _safe_float(x['Amount']))
         
         category_counts = defaultdict(int)
         category_totals = defaultdict(float)
         for exp in expenses_only:
             category_counts[exp['Category']] += 1
-            category_totals[exp['Category']] += float(exp['Amount'])
+            category_totals[exp['Category']] += _safe_float(exp['Amount'])
         
         most_frequent_cat = max(category_counts.items(), key=lambda x: x[1])
         most_expensive_cat = max(category_totals.items(), key=lambda x: x[1])
@@ -545,7 +567,8 @@ class ExpenseTracker:
         print(f"  Number of Expenses:    {len(expenses_only)}")
         print(f"  Average Expense:       ${avg_expense:.2f}")
         print(f"  Days Tracked:          {days_tracked}")
-        print(f"  Average Daily Spend:   ${total_expense/days_tracked:.2f}")
+        avg_daily_spend = total_expense / days_tracked if days_tracked > 0 else 0
+        print(f"  Average Daily Spend:   ${avg_daily_spend:.2f}")
         
         print(f"\n{Colors.YELLOW}Highest Expense:{Colors.RESET}")
         print(f"  ${highest['Amount']} - {highest['Category']} on {highest['Date']}")
@@ -560,17 +583,20 @@ class ExpenseTracker:
             recent_10 = expenses_only[-10:]
             older_10 = expenses_only[-20:-10] if len(expenses_only) >= 20 else expenses_only[:-10]
             
-            recent_avg = sum(float(e['Amount']) for e in recent_10) / len(recent_10)
-            older_avg = sum(float(e['Amount']) for e in older_10) / len(older_10)
-            
-            trend = "↑ Increasing" if recent_avg > older_avg else "↓ Decreasing"
-            trend_color = Colors.RED if recent_avg > older_avg else Colors.GREEN
-            
-            print(f"\n{Colors.CYAN}Spending Trend:{Colors.RESET}")
-            print(f"  {trend_color}{trend}{Colors.RESET} (Recent avg: ${recent_avg:.2f} vs ${older_avg:.2f})")
+            if not older_10:
+                pass  # Not enough data for trend comparison
+            else:
+                recent_avg = sum(_safe_float(e['Amount']) for e in recent_10) / len(recent_10)
+                older_avg = sum(_safe_float(e['Amount']) for e in older_10) / len(older_10)
+                
+                trend = "↑ Increasing" if recent_avg > older_avg else "↓ Decreasing"
+                trend_color = Colors.RED if recent_avg > older_avg else Colors.GREEN
+                
+                print(f"\n{Colors.CYAN}Spending Trend:{Colors.RESET}")
+                print(f"  {trend_color}{trend}{Colors.RESET} (Recent avg: ${recent_avg:.2f} vs ${older_avg:.2f})")
         
         print(f"\n{Colors.BOLD}Top 5 Expenses:{Colors.RESET}")
-        top_5 = sorted(expenses_only, key=lambda x: float(x['Amount']), reverse=True)[:5]
+        top_5 = sorted(expenses_only, key=lambda x: _safe_float(x['Amount']), reverse=True)[:5]
         for i, exp in enumerate(top_5, 1):
             print(f"  {i}. ${exp['Amount']:<8} - {exp['Category']:<15} ({exp['Date']})")
         
@@ -592,7 +618,14 @@ class ExpenseTracker:
                 month = datetime.now().strftime("%Y-%m")
             
             category = input("Category: ").strip()
-            amount = float(input("Budget amount: $").strip())
+            try:
+                amount = float(input("Budget amount: $").strip())
+                if amount <= 0:
+                    print(f"{Colors.RED}Budget amount must be positive.{Colors.RESET}")
+                    return
+            except ValueError:
+                print(f"{Colors.RED}Invalid amount. Please enter a number.{Colors.RESET}")
+                return
             
             budget_key = f"{month}:{category}"
             self.budgets[budget_key] = amount
@@ -620,7 +653,11 @@ class ExpenseTracker:
                 month, category = key.split(':')
                 print(f"{i}. {month} - {category}: ${self.budgets[key]:.2f}")
             
-            idx = int(input("\nEnter number to delete: ").strip()) - 1
+            try:
+                idx = int(input("\nEnter number to delete: ").strip()) - 1
+            except ValueError:
+                print(f"{Colors.RED}Invalid input. Please enter a number.{Colors.RESET}")
+                return
             keys = sorted(self.budgets.keys())
             if 0 <= idx < len(keys):
                 del self.budgets[keys[idx]]
@@ -645,7 +682,7 @@ class ExpenseTracker:
                                 if e['Date'].startswith(current_month) 
                                 and e['Category'] == category
                                 and e.get('Type', 'expense') == 'expense']
-                spent = sum(float(e['Amount']) for e in month_expenses)
+                spent = sum(_safe_float(e['Amount']) for e in month_expenses)
                 
                 remaining = budget - spent
                 percentage = (spent / budget) * 100 if budget > 0 else 0
@@ -688,7 +725,11 @@ class ExpenseTracker:
         choice = input("\nSelect option (1-2): ").strip()
         
         if choice == '1':
-            idx = int(input("Enter number to delete: ").strip()) - 1
+            try:
+                idx = int(input("Enter number to delete: ").strip()) - 1
+            except ValueError:
+                print(f"{Colors.RED}Invalid input. Please enter a number.{Colors.RESET}")
+                return
             if 0 <= idx < len(self.recurring_expenses):
                 deleted = self.recurring_expenses.pop(idx)
                 self._save_recurring()
@@ -731,16 +772,16 @@ class ExpenseTracker:
         expenses1 = [e for e in self.expenses if e['Date'].startswith(period1) and e.get('Type', 'expense') == 'expense']
         expenses2 = [e for e in self.expenses if e['Date'].startswith(period2) and e.get('Type', 'expense') == 'expense']
         
-        total1 = sum(float(e['Amount']) for e in expenses1)
-        total2 = sum(float(e['Amount']) for e in expenses2)
+        total1 = sum(_safe_float(e['Amount']) for e in expenses1)
+        total2 = sum(_safe_float(e['Amount']) for e in expenses2)
         
         cat1 = defaultdict(float)
         cat2 = defaultdict(float)
         
         for e in expenses1:
-            cat1[e['Category']] += float(e['Amount'])
+            cat1[e['Category']] += _safe_float(e['Amount'])
         for e in expenses2:
-            cat2[e['Category']] += float(e['Amount'])
+            cat2[e['Category']] += _safe_float(e['Amount'])
         
         all_categories = set(cat1.keys()) | set(cat2.keys())
         
@@ -775,8 +816,8 @@ class ExpenseTracker:
         expenses1 = [e for e in self.expenses if start1 <= e['Date'] <= end1 and e.get('Type', 'expense') == 'expense']
         expenses2 = [e for e in self.expenses if start2 <= e['Date'] <= end2 and e.get('Type', 'expense') == 'expense']
         
-        total1 = sum(float(e['Amount']) for e in expenses1)
-        total2 = sum(float(e['Amount']) for e in expenses2)
+        total1 = sum(_safe_float(e['Amount']) for e in expenses1)
+        total2 = sum(_safe_float(e['Amount']) for e in expenses2)
         print(f"\nPeriod 1 ({start1} to {end1}): ${total1:.2f} ({len(expenses1)} expenses)")
         print(f"Period 2 ({start2} to {end2}): ${total2:.2f} ({len(expenses2)} expenses)")
         
@@ -839,7 +880,7 @@ class ExpenseTracker:
                 for exp in sorted(month_expenses, key=lambda x: x['Date']):
                     f.write(f"{exp['Date']} | ${exp['Amount']:>8} | {exp['Category']:<20} | {exp['Note']}\n")
                 
-                total = sum(float(e['Amount']) for e in month_expenses if e.get('Type', 'expense') == 'expense')
+                total = sum(_safe_float(e['Amount']) for e in month_expenses if e.get('Type', 'expense') == 'expense')
                 f.write("\n" + "-"*60 + "\n")
                 f.write(f"Total: ${total:.2f}\n")
             
