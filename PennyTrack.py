@@ -23,6 +23,18 @@ class Colors:
         Colors.BLUE = Colors.MAGENTA = Colors.CYAN = ''
         Colors.WHITE = Colors.BOLD = Colors.RESET = ''
 
+    @staticmethod
+    def enable():
+        Colors.RED = '\033[91m'
+        Colors.GREEN = '\033[92m'
+        Colors.YELLOW = '\033[93m'
+        Colors.BLUE = '\033[94m'
+        Colors.MAGENTA = '\033[95m'
+        Colors.CYAN = '\033[96m'
+        Colors.WHITE = '\033[97m'
+        Colors.BOLD = '\033[1m'
+        Colors.RESET = '\033[0m'
+
 
 def _safe_float(value, default=0.0):
     """Safely convert a value to float, returning default on failure."""
@@ -517,7 +529,6 @@ class ExpenseTracker:
             
             print("=" * 50)
             
-            # Use the selected month's actual day count, not the current month
             selected_month_dt = datetime.strptime(month_input + "-01", "%Y-%m-%d")
             days_in_month = (selected_month_dt.replace(day=1) + timedelta(days=32)).replace(day=1) - timedelta(days=1)
             avg_daily = total_expenses / days_in_month.day if days_in_month.day > 0 else 0
@@ -584,7 +595,7 @@ class ExpenseTracker:
             older_10 = expenses_only[-20:-10] if len(expenses_only) >= 20 else expenses_only[:-10]
             
             if not older_10:
-                pass  # Not enough data for trend comparison
+                pass
             else:
                 recent_avg = sum(_safe_float(e['Amount']) for e in recent_10) / len(recent_10)
                 older_avg = sum(_safe_float(e['Amount']) for e in older_10) / len(older_10)
@@ -912,29 +923,22 @@ class ExpenseTracker:
         print("="*50)
     
     def settings_menu(self):
-        """Manage application settings"""
         print("\n--- Settings ---")
         print(f"1. Toggle colors (currently: {'ON' if self.config['use_colors'] else 'OFF'})")
-        print(f"2. Currency symbol (currently: {self.config['currency_symbol']})")
-        print("3. Back to main menu")
+        print("2. Back to main menu")
         
         choice = input("\nSelect option (1-3): ").strip()
         
         if choice == '1':
             self.config['use_colors'] = not self.config['use_colors']
-            if not self.config['use_colors']:
+            if self.config['use_colors']:
+                Colors.enable()
+            else:
                 Colors.disable()
             self._save_config()
             print(f"{Colors.GREEN}✓ Colors {'enabled' if self.config['use_colors'] else 'disabled'}{Colors.RESET}")
-        
-        elif choice == '2':
-            symbol = input("Enter new currency symbol: ").strip()
-            self.config['currency_symbol'] = symbol
-            self._save_config()
-            print(f"{Colors.GREEN}✓ Currency symbol updated to {symbol}{Colors.RESET}")
     
     def run(self):
-        """Main application loop"""
         if not self.config['use_colors']:
             Colors.disable()
         
